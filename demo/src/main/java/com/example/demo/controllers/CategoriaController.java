@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
@@ -22,6 +21,7 @@ import com.example.demo.dto.CategoriaResponse;
 import com.example.demo.model.Department;
 import com.example.demo.repo.categoriaRepo;
 import com.example.demo.repo.productoRepo;
+import com.example.demo.service.CategoriaService;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -36,11 +36,19 @@ import jakarta.validation.Valid;
 @SecurityRequirement(name = "bearerAuth")
 public class CategoriaController {
 
-    @Autowired
-    categoriaRepo repo;
+    private final categoriaRepo repo;
 
-    @Autowired
-    productoRepo repoProducto;
+    private final productoRepo repoProducto;
+    private final CategoriaService categoriaService;
+
+    public CategoriaController(
+            categoriaRepo repo,
+            productoRepo repoProducto,
+            CategoriaService categoriaService) {
+        this.repo = repo;
+        this.repoProducto = repoProducto;
+        this.categoriaService = categoriaService;
+    }
 
     @GetMapping("categorias")
     @PreAuthorize("permitAll()")
@@ -54,8 +62,12 @@ public class CategoriaController {
     }
 
     @PostMapping("categoria")
-    @Operation(summary = "Crear categoría")
+    @Operation(
+            summary = "Crear categoría",
+            description = "tipo acepta GENERAL, ICONO o NAVBAR. ICONO requiere icono; NAVBAR requiere imagenNavbar.")
     public ResponseEntity<CategoriaResponse> addCategoria(@Valid @RequestBody CategoriaRequest request) {
+        categoriaService.validate(request);
+
         Department saved = repo.save(request.toEntity());
         URI location = URI.create("/categoria/" + saved.getId());
         return ResponseEntity.created(location).body(CategoriaResponse.from(saved));
@@ -102,12 +114,15 @@ public class CategoriaController {
     }
 
     @PutMapping("categoria/{id}")
-    @Operation(summary = "Reemplazar categoría")
+    @Operation(
+            summary = "Reemplazar categoría",
+            description = "tipo acepta GENERAL, ICONO o NAVBAR. ICONO requiere icono; NAVBAR requiere imagenNavbar.")
     public ResponseEntity<CategoriaResponse> putDepartment(
             @PathVariable String id,
             @Valid @RequestBody CategoriaRequest request) {
         return repo.findById(id)
                 .map(categoria -> {
+                    categoriaService.validate(request);
                     request.updateEntity(categoria);
                     return ResponseEntity.ok(CategoriaResponse.from(repo.save(categoria)));
                 })

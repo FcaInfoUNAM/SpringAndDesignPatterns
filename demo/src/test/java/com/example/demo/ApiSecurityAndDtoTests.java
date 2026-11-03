@@ -8,6 +8,8 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -31,6 +33,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import com.example.demo.model.AppUser;
+import com.example.demo.model.Department;
 import com.example.demo.model.Producto;
 import com.example.demo.repo.appUserRepo;
 import com.example.demo.repo.categoriaRepo;
@@ -215,6 +218,116 @@ class ApiSecurityAndDtoTests {
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(productoRepo);
+    }
+
+    @Test
+    void categoryStrategyValidatesCreateAndReturnsCreatedLocation() throws Exception {
+        when(categoriaRepo.save(any(Department.class))).thenAnswer(invocation -> {
+            Department categoria = invocation.getArgument(0);
+            categoria.setId("categoria-1");
+            return categoria;
+        });
+
+        mockMvc.perform(post("/categoria")
+                        .header("Authorization", bearerToken("admin", "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "nombre": "Bebidas",
+                                  "descripcion": "Bebidas frías y calientes",
+                                  "tipo": " ICONO ",
+                                  "icono": "fa-mug-hot",
+                                  "imagenNavbar": null
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/categoria/categoria-1"))
+                .andExpect(jsonPath("$.id").value("categoria-1"))
+                .andExpect(jsonPath("$.tipo").value(" ICONO "));
+    }
+
+    @Test
+    void invalidCategoryTypesAreRejectedBeforeSaving() throws Exception {
+        mockMvc.perform(post("/categoria")
+                        .header("Authorization", bearerToken("admin", "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"Otra","tipo":"OTRO"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/categoria")
+                        .header("Authorization", bearerToken("admin", "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"Bebidas","tipo":"ICONO","icono":" "}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(categoriaRepo);
+    }
+
+    @Test
+    void categoryPutChecksResourceBeforeApplyingStrategyValidation() throws Exception {
+        when(categoriaRepo.findById("missing")).thenReturn(Optional.empty());
+
+        mockMvc.perform(put("/categoria/missing")
+                        .header("Authorization", bearerToken("admin", "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"Sin tipo"}
+                                """))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void categoryPutValidatesAndUpdatesAnExistingCategory() throws Exception {
+        Department categoria = Department.builder()
+                .id("categoria-1")
+                .nombre("Nombre anterior")
+                .tipo("GENERAL")
+                .build();
+        when(categoriaRepo.findById("categoria-1")).thenReturn(Optional.of(categoria));
+        when(categoriaRepo.save(any(Department.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        mockMvc.perform(put("/categoria/categoria-1")
+                        .header("Authorization", bearerToken("admin", "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "nombre": "Temporada",
+                                  "tipo": "NAVBAR",
+                                  "imagenNavbar": "/temporada.png"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tipo").value("NAVBAR"))
+                .andExpect(jsonPath("$.imagenNavbar").value("/temporada.png"));
+    }
+
+    @Test
+    void categoryWritesRemainAdminOnlyWhileCategoryGetsArePublic() throws Exception {
+        when(categoriaRepo.findAll()).thenReturn(List.of());
+
+        mockMvc.perform(get("/categorias"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+
+        mockMvc.perform(post("/categoria")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"General","tipo":"GENERAL"}
+                                """))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/categoria")
+                        .header("Authorization", bearerToken("usuario", "USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"General","tipo":"GENERAL"}
+                                """))
+                .andExpect(status().isForbidden());
     }
 
     @Test
